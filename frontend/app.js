@@ -4,11 +4,11 @@ const FIELD_LABELS = {
   face_shape: "face shape",
   eyes_shape: "eye shape",
   eyes_spacing: "eye spacing",
-  eyebrows_thickness: "eyebrow thickness",
+  eyebrows_thickness: "eyebrows",
   nose_size: "nose size",
   nose_shape: "nose shape",
-  mouth_width: "mouth width",
-  jaw_shape: "jaw shape",
+  mouth_width: "mouth",
+  jaw_shape: "jaw",
   hair_length: "hair length",
   hair_texture: "hair texture",
   hair_color: "hair color",
@@ -16,8 +16,8 @@ const FIELD_LABELS = {
 };
 
 let currentCaseId = null;
-let pollTimer = null;
-// witnessState[i] = { sessionId, agoraClient, joined }
+let activeWitnessTab = 0;
+// witnessState[i] = { sessionId, label, agoraClient, micTrack, levelInterval }
 const witnessState = [{}, {}];
 
 async function api(path, options = {}) {
@@ -33,112 +33,172 @@ async function api(path, options = {}) {
 }
 
 async function checkBackend() {
-  const el = document.getElementById("backend-status");
+  const pill = document.getElementById("backend-status");
+  const text = document.getElementById("backend-status-text");
   try {
     await api("/health");
-    el.textContent = "connected";
-    el.style.color = "green";
+    pill.classList.add("ok");
+    text.textContent = "connected";
   } catch (e) {
-    el.textContent = "not reachable (is the server running on :8000?)";
-    el.style.color = "red";
+    pill.classList.add("bad");
+    text.textContent = "backend not reachable on :8000";
   }
 }
 
-document.getElementById("create-case-btn").addEventListener("click", async () => {
+// ---------- Voice join (shared by witness 1 and witness 2) ----------
+
+async function joinWitnessVoice(idx) {
+  const { app_id, channel_name, frontend_uid, frontend_token } = await api("/agora/agent/start", {
+    method: "POST",
+    body: JSON.stringify({ case_id: currentCaseId, session_id: witnessState[idx].sessionId }),
+  });
+
+  const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+
+  // Joining a channel does NOT auto-play other participants' audio -- the
+  // agent's spoken replies only reach the speakers if we explicitly
+  // subscribe to its published track here.
+  client.on("user-published", async (user, mediaType) => {
+    await client.subscribe(user, mediaType);
+    if (mediaType === "audio") user.audioTrack.play();
+  });
+
+  await client.join(app_id, channel_name, frontend_token, frontend_uid);
+  const micTrack = await AgoraRTC.createMicrophoneAudioTrack();
+  await client.publish([micTrack]);
+
+  witnessState[idx].agoraClient = client;
+  witnessState[idx].micTrack = micTrack;
+
+  if (idx === activeWitnessTab) {
+    startMicVisualizer(micTrack);
+    setVoiceState("On call — speak naturally");
+    document.getElementById("orb").classList.add("live");
+  }
+}
+
+function startMicVisualizer(micTrack) {
+  const bars = document.querySelectorAll("#mic-indicator span");
+  clearInterval(witnessState[activeWitnessTab]._visualizerInterval);
+  const interval = setInterval(() => {
+    const level = micTrack.getVolumeLevel(); // 0..1
+    bars.forEach((bar, i) => {
+      const jitter = Math.sin(Date.now() / 120 + i) * 0.15;
+      const h = Math.max(4, Math.min(20, (level + jitter) * 60));
+      bar.style.height = `${h}px`;
+    });
+  }, 100);
+  witnessState[activeWitnessTab]._visualizerInterval = interval;
+}
+
+function setVoiceState(text) {
+  document.getElementById("voice-state").textContent = text;
+}
+
+// ---------- Begin interview (case + witness 1 session + join, one click) ----------
+
+document.getElementById("begin-btn").addEventListener("click", async () => {
   const incident_location = document.getElementById("incident-location").value.trim();
   const incident_description = document.getElementById("incident-description").value.trim();
   if (!incident_location) {
     alert("Incident location is required (used for jurisdiction lookup).");
     return;
   }
-  const caseObj = await api("/cases", {
-    method: "POST",
-    body: JSON.stringify({ incident_location, incident_description }),
-  });
-  currentCaseId = caseObj.id;
-  document.getElementById("case-setup").style.display = "none";
-  document.getElementById("case-panel").style.display = "block";
-  document.getElementById("case-ref").textContent = `${caseObj.id} (${caseObj.reference_code})`;
-  startPolling();
-});
 
-document.querySelectorAll(".start-session-btn").forEach((btn, idx) => {
-  btn.addEventListener("click", async () => {
-    const card = btn.closest(".witness-card");
-    const label = card.querySelector("h3").textContent;
+  const btn = document.getElementById("begin-btn");
+  btn.disabled = true;
+  btn.textContent = "Connecting…";
+
+  try {
+    const caseObj = await api("/cases", {
+      method: "POST",
+      body: JSON.stringify({ incident_location, incident_description }),
+    });
+    currentCaseId = caseObj.id;
+
     const session = await api(`/cases/${currentCaseId}/sessions`, {
       method: "POST",
-      body: JSON.stringify({ witness_label: label }),
+      body: JSON.stringify({ witness_label: "Witness 1" }),
     });
-    witnessState[idx].sessionId = session.id;
-    btn.style.display = "none";
-    card.querySelector(".join-voice-btn").style.display = "inline-block";
-  });
+    witnessState[0].sessionId = session.id;
+    witnessState[0].label = "Witness 1";
+
+    document.getElementById("setup-screen").style.display = "none";
+    document.getElementById("conversation-screen").style.display = "block";
+    document.getElementById("case-ref").textContent = `${caseObj.id} (${caseObj.reference_code})`;
+
+    await joinWitnessVoice(0);
+    startPolling();
+  } catch (err) {
+    console.error(err);
+    btn.disabled = false;
+    btn.textContent = "Begin interview";
+    alert("Could not start the interview: " + err.message);
+  }
 });
 
-document.querySelectorAll(".join-voice-btn").forEach((btn, idx) => {
-  btn.addEventListener("click", async () => {
-    btn.disabled = true;
-    btn.textContent = "connecting...";
-    try {
-      const { app_id, channel_name, frontend_uid, frontend_token } = await api("/agora/agent/start", {
-        method: "POST",
-        body: JSON.stringify({ case_id: currentCaseId, session_id: witnessState[idx].sessionId }),
-      });
+// ---------- Second witness ----------
 
-      const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
-
-      // Joining a channel does NOT auto-play other participants' audio --
-      // the agent's spoken replies only reach the speakers if we
-      // explicitly subscribe to its published track here.
-      client.on("user-published", async (user, mediaType) => {
-        await client.subscribe(user, mediaType);
-        if (mediaType === "audio") {
-          user.audioTrack.play();
-        }
-      });
-
-      await client.join(app_id, channel_name, frontend_token, frontend_uid);
-      const micTrack = await AgoraRTC.createMicrophoneAudioTrack();
-
-      // Diagnostic: confirms the SDK actually captured a real input device
-      // and that speaking produces real audio energy, before we spend any
-      // more time debugging Agora/ASR-side. Remove once mic capture is
-      // confirmed working end-to-end.
-      const settings = micTrack.getMediaStreamTrack().getSettings();
-      console.log("[mic diagnostic] using device:", settings.deviceId, settings.label || "(no label)");
-      const levelInterval = setInterval(() => {
-        console.log("[mic diagnostic] volume level:", micTrack.getVolumeLevel());
-      }, 1000);
-      client.on("connection-state-change", (state) => {
-        if (state === "DISCONNECTED") clearInterval(levelInterval);
-      });
-
-      await client.publish([micTrack]);
-
-      witnessState[idx].agoraClient = client;
-      witnessState[idx].joined = true;
-      btn.textContent = "on call";
-      btn.classList.add("secondary");
-    } catch (err) {
-      console.error(err);
-      btn.disabled = false;
-      btn.textContent = "Join voice (mic)";
-      alert(
-        "Could not join the voice channel. This requires real Agora credentials configured in the backend's .env (see Phase 0 checklist) -- expected to fail with placeholder keys.\n\n" +
-          err.message
-      );
-    }
+async function startWitness2() {
+  if (witnessState[1].sessionId) return;
+  const session = await api(`/cases/${currentCaseId}/sessions`, {
+    method: "POST",
+    body: JSON.stringify({ witness_label: "Witness 2" }),
   });
+  witnessState[1].sessionId = session.id;
+  witnessState[1].label = "Witness 2";
+  document.getElementById("witness2-status").textContent = "Connecting…";
+  document.getElementById("witness2-inline-btn").style.display = "none";
+  try {
+    await joinWitnessVoice(1);
+    document.getElementById("witness2-status").innerHTML = "<b>On call</b>";
+    renderWitnessTabs();
+  } catch (err) {
+    document.getElementById("witness2-status").textContent = "Failed to connect: " + err.message;
+  }
+}
+
+document.getElementById("witness2-btn").addEventListener("click", startWitness2);
+document.getElementById("witness2-inline-btn").addEventListener("click", startWitness2);
+
+function renderWitnessTabs() {
+  const heading = document.querySelector(".sketch-panel h3");
+  if (!witnessState[1].sessionId) {
+    heading.textContent = "Live composite — Witness 1";
+    return;
+  }
+  heading.innerHTML = "";
+  [0, 1].forEach((idx) => {
+    const tab = document.createElement("span");
+    tab.textContent = `Witness ${idx + 1}`;
+    tab.style.cursor = "pointer";
+    tab.style.marginRight = "0.8rem";
+    tab.style.opacity = idx === activeWitnessTab ? "1" : "0.45";
+    tab.addEventListener("click", () => {
+      activeWitnessTab = idx;
+      renderWitnessTabs();
+      refreshState();
+      if (witnessState[idx].micTrack) startMicVisualizer(witnessState[idx].micTrack);
+    });
+    heading.appendChild(tab);
+  });
+}
+
+// ---------- Tools drawer ----------
+
+const toolsToggle = document.getElementById("tools-toggle");
+const toolsDrawer = document.getElementById("tools-drawer");
+toolsToggle.addEventListener("click", () => {
+  toolsToggle.classList.toggle("open");
+  toolsDrawer.classList.toggle("open");
 });
+
+// ---------- Case tools actions ----------
 
 document.getElementById("signoff-btn").addEventListener("click", async () => {
   const signed_off_by = document.getElementById("signoff-name").value.trim() || "Unnamed caseworker";
   try {
-    await api(`/cases/${currentCaseId}/signoff`, {
-      method: "POST",
-      body: JSON.stringify({ signed_off_by }),
-    });
+    await api(`/cases/${currentCaseId}/signoff`, { method: "POST", body: JSON.stringify({ signed_off_by }) });
     refreshState();
   } catch (e) {
     alert(e.message);
@@ -148,10 +208,7 @@ document.getElementById("signoff-btn").addEventListener("click", async () => {
 document.getElementById("escalate-btn").addEventListener("click", async () => {
   const reason = document.getElementById("escalate-reason").value.trim() || "manually escalated from UI";
   try {
-    await api(`/cases/${currentCaseId}/escalate`, {
-      method: "POST",
-      body: JSON.stringify({ reason }),
-    });
+    await api(`/cases/${currentCaseId}/escalate`, { method: "POST", body: JSON.stringify({ reason }) });
     refreshState();
   } catch (e) {
     alert(e.message);
@@ -161,31 +218,38 @@ document.getElementById("escalate-btn").addEventListener("click", async () => {
 document.getElementById("reconcile-btn").addEventListener("click", async () => {
   try {
     const result = await api(`/cases/${currentCaseId}/reconcile`, { method: "POST" });
-    if (result.conflicts.length) {
-      alert(`Reconciliation found ${result.conflicts.length} conflicting field(s) -- case escalated for human review.`);
-    } else {
-      alert("Both witnesses agree on all shared features. No conflicts.");
-    }
+    alert(
+      result.conflicts.length
+        ? `Found ${result.conflicts.length} conflicting field(s) — case escalated for human review.`
+        : "Both witnesses agree on all shared features. No conflicts."
+    );
     refreshState();
   } catch (e) {
     alert(e.message);
   }
 });
 
-function renderFeatureList(ul, params) {
-  ul.innerHTML = "";
+// ---------- State polling & rendering ----------
+
+function renderFeatureChips(container, params) {
+  container.innerHTML = "";
   for (const [field, label] of Object.entries(FIELD_LABELS)) {
     const value = params[field];
     if (value == null) continue;
     const verbatim = params[`${field}_verbatim`] || "";
-    const li = document.createElement("li");
-    li.innerHTML = `<span class="interp">${label}: ${value}</span><br/><span class="verbatim">"${verbatim}"</span>`;
-    ul.appendChild(li);
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    chip.innerHTML = `${label}: <b>${value}</b><div class="chip-tooltip">"${verbatim}"</div>`;
+    container.appendChild(chip);
   }
-  if (params.distinguishing_marks && params.distinguishing_marks.length) {
-    const li = document.createElement("li");
-    li.innerHTML = `<span class="interp">marks: ${params.distinguishing_marks.join(", ")}</span>`;
-    ul.appendChild(li);
+  (params.distinguishing_marks || []).forEach((mark) => {
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    chip.innerHTML = `mark: <b>${mark}</b>`;
+    container.appendChild(chip);
+  });
+  if (!container.children.length) {
+    container.innerHTML = '<div class="chip" style="opacity:0.5">no details captured yet</div>';
   }
 }
 
@@ -193,45 +257,50 @@ async function refreshState() {
   if (!currentCaseId) return;
   const state = await api(`/cases/${currentCaseId}/state`);
 
-  document.getElementById("case-status").textContent = state.case.status;
-  document.getElementById("case-jurisdiction").textContent =
-    `${state.case.jurisdiction_name} (${state.case.jurisdiction_contact})`;
+  const pill = document.getElementById("case-status-pill");
+  pill.textContent = state.case.status;
+  pill.className = "status-pill" + (state.case.status === "CONFIRMED" ? " confirmed" : "") + (state.case.status === "ESCALATED" ? " escalated" : "");
+  document.getElementById("case-jurisdiction").textContent = state.case.jurisdiction_name;
 
-  const escBox = document.getElementById("escalation-banners");
-  escBox.innerHTML = state.escalations
+  document.getElementById("escalation-banners").innerHTML = state.escalations
     .map((e) => `<div class="banner escalation">Escalated (${e.source}): ${e.reason}</div>`)
     .join("");
-
-  const conflictBox = document.getElementById("conflict-banners");
-  conflictBox.innerHTML = state.conflicts
-    .map(
-      (c) =>
-        `<div class="banner conflict">Conflict on "${c.field_name}": witness A said "${c.witness_a_value}", witness B said "${c.witness_b_value}" -- needs human review</div>`
-    )
+  document.getElementById("conflict-banners").innerHTML = state.conflicts
+    .map((c) => `<div class="banner conflict">Conflict on "${c.field_name}": witness A said "${c.witness_a_value}", witness B said "${c.witness_b_value}" — needs human review</div>`)
     .join("");
 
-  document.querySelectorAll(".witness-card").forEach((card, idx) => {
-    const w = state.witnesses.find((w) => w.session.id === witnessState[idx].sessionId);
-    if (!w) return;
-    renderFeatureList(card.querySelector(".feature-list"), w.parameters);
+  const w = state.witnesses.find((w) => w.session.id === witnessState[activeWitnessTab].sessionId);
+  if (!w) return;
 
-    const img = card.querySelector(".sketch-img");
-    const watermark = card.querySelector(".draft-watermark");
-    if (w.latest_sketch_status === "READY" && w.latest_sketch_url) {
-      img.src = `${w.latest_sketch_url}?_=${Date.now()}`; // cache-bust so edits show immediately
-      img.style.display = "block";
-      const isFinal = state.case.status === "CONFIRMED";
-      watermark.style.display = isFinal ? "none" : "flex";
-    } else if (w.latest_sketch_status === "GENERATION_FAILED") {
-      img.style.display = "none";
-      watermark.style.display = "none";
+  renderFeatureChips(document.getElementById("feature-chips"), w.parameters);
+
+  const img = document.getElementById("sketch-img");
+  const placeholder = document.getElementById("sketch-placeholder");
+  const overlay = document.getElementById("sketching-overlay");
+  const watermark = document.getElementById("draft-watermark");
+
+  overlay.classList.toggle("active", w.latest_sketch_status === "GENERATING");
+
+  if (w.latest_sketch_status === "READY" && w.latest_sketch_url) {
+    const newSrc = `${w.latest_sketch_url}?_=${Date.now()}`;
+    if (img.dataset.baseUrl !== w.latest_sketch_url) {
+      img.dataset.baseUrl = w.latest_sketch_url;
+      img.onload = () => img.classList.add("shown");
+      img.src = newSrc;
+      placeholder.style.display = "none";
     }
-  });
+    const isFinal = state.case.status === "CONFIRMED";
+    watermark.classList.toggle("show", !isFinal);
+  }
+
+  if (state.case.status === "PENDING_REVIEW" || state.case.status === "CONFIRMED") {
+    setVoiceState(state.case.status === "CONFIRMED" ? "Case confirmed" : "Description complete — awaiting sign-off");
+  }
 }
 
 function startPolling() {
   refreshState();
-  pollTimer = setInterval(refreshState, 2000);
+  setInterval(refreshState, 1500);
 }
 
 checkBackend();

@@ -1,63 +1,98 @@
 <title>Composite Sketch Assistant</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="style.css" />
 <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js"></script>
 
-<h1>Composite Sketch Assistant &mdash; Case Intake</h1>
-<div id="status-line">Backend: <span id="backend-status">checking...</span></div>
+<div class="app">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span> Composite Sketch Assistant</div>
+    <div id="backend-status"><span class="pip"></span> <span id="backend-status-text">checking backend...</span></div>
+  </div>
 
-<div class="panel" id="case-setup">
-  <h2>1. Open a case</h2>
-  <label>Incident location (used for jurisdiction lookup)</label>
-  <input id="incident-location" placeholder="e.g. Sector 62 Noida" />
-  <label>Incident description</label>
-  <textarea id="incident-description" rows="2" placeholder="brief description"></textarea>
-  <button id="create-case-btn">Create case</button>
-</div>
+  <section id="setup-screen">
+    <div class="hero">
+      <h1>Describe what you saw. We'll sketch it as you talk.</h1>
+      <p>Speak naturally — the assistant listens, asks follow-ups, and builds a draft composite sketch live.</p>
+    </div>
+    <div class="card setup-card">
+      <div class="field">
+        <label>Incident location</label>
+        <input id="incident-location" placeholder="e.g. Sector 62 Noida" />
+      </div>
+      <div class="field">
+        <label>Brief description (optional)</label>
+        <textarea id="incident-description" placeholder="What happened, briefly"></textarea>
+      </div>
+      <button id="begin-btn" class="btn-primary">Begin interview</button>
+    </div>
+  </section>
 
-<div id="case-panel" style="display:none">
-  <div class="panel">
-    <h2>Case <span id="case-ref"></span></h2>
-    <div>Status: <b id="case-status"></b></div>
-    <div>Jurisdiction: <span id="case-jurisdiction"></span></div>
+  <section id="conversation-screen">
+    <div class="case-strip">
+      <div>Case <b id="case-ref"></b> &middot; <span id="case-jurisdiction"></span></div>
+      <span class="status-pill" id="case-status-pill">OPEN</span>
+    </div>
+
     <div id="escalation-banners"></div>
     <div id="conflict-banners"></div>
-    <div class="row">
-      <div class="col">
-        <label>Caseworker name (for sign-off)</label>
-        <input id="signoff-name" placeholder="Officer name" />
-        <button id="signoff-btn">Sign off case (confirm final)</button>
-      </div>
-      <div class="col">
-        <label>Escalation reason (manual)</label>
-        <input id="escalate-reason" placeholder="e.g. witness distress" />
-        <button id="escalate-btn" class="danger">Escalate to human</button>
-      </div>
-    </div>
-    <button id="reconcile-btn" class="secondary">Reconcile both witnesses</button>
-  </div>
 
-  <div class="row">
-    <div class="col panel witness-card" data-witness="0">
-      <h3>Witness 1</h3>
-      <button class="start-session-btn">Start witness session</button>
-      <button class="join-voice-btn" style="display:none">Join voice (mic)</button>
-      <div class="sketch-wrap">
-        <img class="sketch-img" src="" style="display:none" />
-        <div class="draft-watermark" style="display:none">DRAFT</div>
+    <div class="stage">
+      <div class="card voice-panel">
+        <div class="orb" id="orb"></div>
+        <div class="voice-state" id="voice-state">Connecting&hellip;</div>
+        <div class="mic-indicator" id="mic-indicator">
+          <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <button id="witness2-inline-btn" class="btn-ghost" style="display:none">+ Add second witness</button>
       </div>
-      <ul class="feature-list"></ul>
-    </div>
-    <div class="col panel witness-card" data-witness="1">
-      <h3>Witness 2</h3>
-      <button class="start-session-btn">Start witness session</button>
-      <button class="join-voice-btn" style="display:none">Join voice (mic)</button>
-      <div class="sketch-wrap">
-        <img class="sketch-img" src="" style="display:none" />
-        <div class="draft-watermark" style="display:none">DRAFT</div>
+
+      <div class="card sketch-panel">
+        <h3>Live composite &mdash; Witness 1</h3>
+        <div class="sketch-frame">
+          <img id="sketch-img" alt="Composite sketch" />
+          <div class="sketch-placeholder" id="sketch-placeholder">The sketch will appear here as details come in</div>
+          <div class="sketching-overlay" id="sketching-overlay"><div class="pencil-scribble"></div><span>Sketching&hellip;</span></div>
+          <div class="draft-watermark" id="draft-watermark">DRAFT</div>
+        </div>
+        <div class="feature-chips" id="feature-chips"></div>
       </div>
-      <ul class="feature-list"></ul>
     </div>
-  </div>
+
+    <button class="btn-ghost tools-toggle" id="tools-toggle">
+      <span>Case tools &mdash; sign-off, escalation, reconciliation</span>
+      <span class="chev">&#9662;</span>
+    </button>
+    <div class="tools-drawer" id="tools-drawer">
+      <div class="tools-inner">
+        <div class="tool-block">
+          <h4>Witness 2</h4>
+          <div class="witness-status" id="witness2-status">Not started</div>
+          <button id="witness2-btn" class="btn-ghost" style="margin-top:0.6rem">Start second witness</button>
+        </div>
+        <div class="tool-block">
+          <h4>Reconcile</h4>
+          <p class="witness-status">Cross-check both witnesses once both have described the suspect.</p>
+          <button id="reconcile-btn" class="btn-ghost">Reconcile both witnesses</button>
+        </div>
+        <div class="tool-block">
+          <h4>Sign off (caseworker)</h4>
+          <div class="row">
+            <input id="signoff-name" placeholder="Officer name" />
+            <button id="signoff-btn" class="btn-ghost">Confirm final</button>
+          </div>
+        </div>
+        <div class="tool-block">
+          <h4>Escalate to human</h4>
+          <div class="row">
+            <input id="escalate-reason" placeholder="Reason" />
+            <button id="escalate-btn" class="btn-danger">Escalate</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
 </div>
 
 <script src="app.js"></script>
