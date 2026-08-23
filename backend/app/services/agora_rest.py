@@ -22,12 +22,21 @@ the official join API docs), not just guessed from generic docs. Confirmed:
   (those looked pipeline-specific, not safely reusable from a raw call).
 - TTS uses Minimax with credential_mode=managed instead of ElevenLabs --
   eliminates a whole separate account/signup for the demo.
-- ASR uses Deepgram with credential_mode=managed specifically because it's
-  the vendor confirmed present in the user's account via a real Full REST
-  example; "agora" as the ARES vendor string is a reasonable inference from
-  general docs but wasn't directly confirmed the same way, so the
-  lower-risk proven option was chosen for Phase 1. Swap to ARES later if
-  it's confirmed to work equally simply.
+
+SECOND UPDATE: verified against real live join API calls, not just docs.
+Two real 400 errors, both fixed by cross-checking Agora's own vendor-specific
+doc pages rather than guessing:
+- ASR: switched from Deepgram to "agora" (ARES) -- confirmed genuinely
+  zero-config (no params object needed at all), and it's what the original
+  plan wanted before Deepgram's example config nudged this file toward it.
+  Deepgram would have needed a "params.url" pointing at their endpoint,
+  which isn't worth the extra vendor surface when ARES needs nothing.
+- TTS (Minimax, managed): needs "params.url" even in managed mode -- the
+  managed credential only replaces the "key"/"group_id" fields, not the
+  vendor's own API endpoint. Confirmed exact value via
+  docs.agora.io/en/conversational-ai/models/tts/minimax:
+  "wss://api.minimax.io/ws/v1/t2a_v2" for managed mode specifically
+  (BYOK mode uses a different host).
 """
 
 from __future__ import annotations
@@ -76,11 +85,7 @@ def _agent_config(case_id: str, session_id: str, channel_name: str, agent_uid: i
             "remote_rtc_uids": ["*"],
             "enable_string_uid": False,
             "idle_timeout": 600,  # auto-cleanup an abandoned session after 10 minutes
-            "asr": {
-                "vendor": "deepgram",
-                "credential_mode": "managed",  # Agora-managed credential, no separate Deepgram account
-                "params": {"model": "nova-3", "language": "en"},
-            },
+            "asr": {"vendor": "agora", "language": "en"},  # ARES: genuinely zero-config, confirmed via live call
             "llm": {
                 # Custom LLM shape (our own server), NOT the vendor+managed
                 # shape used for asr/tts above -- confirmed these are two
@@ -90,12 +95,16 @@ def _agent_config(case_id: str, session_id: str, channel_name: str, agent_uid: i
                 "system_messages": [],  # system prompt is owned by elicitation.py, not duplicated here
                 "greeting_message": "Hi, I'm here to help build a description of the person you saw. Take your time.",
                 "failure_message": "Sorry, one moment please.",  # Agora's own spoken fallback if OUR endpoint is unreachable/times out
-                "max_history": 0,  # we reconstruct context from the DB every turn, not from Agora's replay
+                "max_history": 1,  # Agora requires > 0; we still reconstruct real context from the DB every turn regardless of what it replays
             },
             "tts": {
                 "vendor": "minimax",
                 "credential_mode": "managed",  # Agora-managed credential, no separate ElevenLabs/Minimax account needed
-                "params": {"model": "speech-2.8-turbo", "voice_setting": {"voice_id": "English_radiant_girl"}},
+                "params": {
+                    "url": "wss://api.minimax.io/ws/v1/t2a_v2",  # required even in managed mode; managed only covers key/group_id
+                    "model": "speech-2.8-turbo",
+                    "voice_setting": {"voice_id": "English_radiant_girl"},
+                },
             },
             "advanced_features": {"enable_aivad": True},  # Agora's voice-activity detection -> better barge-in
         },
@@ -109,7 +118,16 @@ async def create_convo_ai_agent(case_id: str, session_id: str, channel_name: str
             headers={"Authorization": _basic_auth_header(), "Content-Type": "application/json"},
             json=_agent_config(case_id, session_id, channel_name, agent_uid),
         )
-        response.raise_for_status()
+        if response.is_error:
+            # httpx's default raise_for_status() drops the response body,
+            # which is exactly where Agora puts the actionable detail
+            # (e.g. "Invalid value at properties.tts.params.url: required
+            # field is missing") -- surface it instead of a bare 400/500.
+            raise httpx.HTTPStatusError(
+                f"Agora join API {response.status_code}: {response.text}",
+                request=response.request,
+                response=response,
+            )
         return response.json()
 
 
