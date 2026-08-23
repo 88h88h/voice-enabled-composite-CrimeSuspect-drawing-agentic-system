@@ -6,3 +6,4 @@ __pycache__/
 backend/generated_sketches/*.png
 .pytest_cache/
 node_modules/
+LINKEDIN_REFLECTION_POST.md
