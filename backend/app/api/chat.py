@@ -132,6 +132,11 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
 
     body = await request.json()
     model = body.get("model", "witness-agent")
+    # Temporary, high-visibility debug: dumps Agora's exact request body so
+    # we can tell "ASR produced no transcript" apart from "our parsing is
+    # wrong" -- messages have been coming through empty and this is the
+    # fastest way to see why.
+    logger.info("session=%s RAW BODY: %s", session_id, body)
     latest_utterance = _latest_user_message(body)
     # ASR transcription quality directly determines extraction quality --
     # logging the raw text Agora actually sent us (not what the witness

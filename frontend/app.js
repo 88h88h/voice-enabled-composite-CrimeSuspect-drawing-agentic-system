@@ -100,6 +100,20 @@ document.querySelectorAll(".join-voice-btn").forEach((btn, idx) => {
 
       await client.join(app_id, channel_name, frontend_token, frontend_uid);
       const micTrack = await AgoraRTC.createMicrophoneAudioTrack();
+
+      // Diagnostic: confirms the SDK actually captured a real input device
+      // and that speaking produces real audio energy, before we spend any
+      // more time debugging Agora/ASR-side. Remove once mic capture is
+      // confirmed working end-to-end.
+      const settings = micTrack.getMediaStreamTrack().getSettings();
+      console.log("[mic diagnostic] using device:", settings.deviceId, settings.label || "(no label)");
+      const levelInterval = setInterval(() => {
+        console.log("[mic diagnostic] volume level:", micTrack.getVolumeLevel());
+      }, 1000);
+      client.on("connection-state-change", (state) => {
+        if (state === "DISCONNECTED") clearInterval(levelInterval);
+      });
+
       await client.publish([micTrack]);
 
       witnessState[idx].agoraClient = client;
