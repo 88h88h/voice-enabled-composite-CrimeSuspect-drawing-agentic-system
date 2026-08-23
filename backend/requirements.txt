@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+sse-starlette
+pydantic
+pydantic-settings
+sqlmodel
+python-dotenv
+httpx
+google-genai
+agora-token-builder
