@@ -20,4 +20,6 @@ def load_sketch(file_path: str) -> bytes:
 
 
 def sketch_url_for(file_path: str) -> str:
-    return f"{settings.public_base_url}/sketches/{Path(file_path).name}"
+    # local_base_url, not public_base_url -- the browser fetches this
+    # directly, it never needs to go through the ngrok tunnel.
+    return f"{settings.local_base_url}/sketches/{Path(file_path).name}"
