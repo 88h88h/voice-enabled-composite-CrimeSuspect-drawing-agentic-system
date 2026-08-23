@@ -11,6 +11,11 @@ from app.api import agora, chat, sessions, signoff
 from app.database import init_db
 from app.services.image_store import SKETCH_DIR
 
+# Without this, Python's logging has no configured handler and silently
+# drops everything below WARNING (INFO-level turn/reply logging in chat.py
+# would never actually appear) -- this is what makes those visible.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+
 logger = logging.getLogger("app")
 
 

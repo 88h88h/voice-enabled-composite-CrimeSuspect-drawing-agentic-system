@@ -10,6 +10,7 @@ full history, we pull the witness's session and locked parameters from our
 own DB by session_id and reconstruct from there.
 """
 
+import logging
 import time
 import uuid
 
@@ -18,6 +19,8 @@ from sse_starlette.sse import EventSourceResponse
 from sqlmodel import Session, select
 
 from app.agents import composite_generation, orchestrator
+
+logger = logging.getLogger("chat")
 from app.database import get_session
 from app.models.db import SketchImage, SketchStatus, WitnessSession
 from app.services.image_store import load_sketch, save_sketch
@@ -130,6 +133,11 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
     body = await request.json()
     model = body.get("model", "witness-agent")
     latest_utterance = _latest_user_message(body)
+    # ASR transcription quality directly determines extraction quality --
+    # logging the raw text Agora actually sent us (not what the witness
+    # believes they said) is the fastest way to tell an ASR problem apart
+    # from an extraction bug when features aren't being captured.
+    logger.info("session=%s incoming utterance: %r", session_id, latest_utterance)
 
     with get_session() as db:
         witness_session = db.get(WitnessSession, session_id)
@@ -137,6 +145,8 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
             raise HTTPException(status_code=404, detail=f"unknown session_id {session_id!r}")
 
         result = await orchestrator.handle_turn(db, witness_session, latest_utterance)
+
+    logger.info("session=%s reply: %r", session_id, result.reply_text)
 
     if not result.injection_blocked:
         background_tasks.add_task(_generate_and_save_sketch, case_id, session_id)
