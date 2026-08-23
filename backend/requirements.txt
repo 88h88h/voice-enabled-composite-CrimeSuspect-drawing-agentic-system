@@ -8,3 +8,5 @@ python-dotenv
 httpx
 google-genai
 agora-token-builder
+pytest
+pytest-asyncio

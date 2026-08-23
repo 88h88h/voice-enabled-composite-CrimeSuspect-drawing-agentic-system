@@ -138,7 +138,7 @@ class FaceParameters(BaseModel):
     def filled_fields(self) -> list[str]:
         return [
             name
-            for name in self.model_fields
+            for name in type(self).model_fields
             if not name.endswith("_verbatim")
             and name != "distinguishing_marks"
             and getattr(self, name) is not None
@@ -147,7 +147,7 @@ class FaceParameters(BaseModel):
     def missing_fields(self) -> list[str]:
         all_enum_fields = [
             name
-            for name in self.model_fields
+            for name in type(self).model_fields
             if not name.endswith("_verbatim") and name != "distinguishing_marks"
         ]
         filled = set(self.filled_fields())

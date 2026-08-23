@@ -42,6 +42,7 @@ class EscalationSource(str, Enum):
     witness_distress = "WITNESS_DISTRESS"
     reconciliation_conflict = "RECONCILIATION_CONFLICT"
     classifier_failure = "CLASSIFIER_FAILURE"
+    prompt_injection_attempt = "PROMPT_INJECTION_ATTEMPT"
 
 
 class Case(SQLModel, table=True):
@@ -61,6 +62,8 @@ class WitnessSession(SQLModel, table=True):
     witness_label: str = "Witness 1"
     language_hint: str = ""
     status: SessionStatus = SessionStatus.in_progress
+    awaiting_confirmation: bool = False
+    turn_count: int = 0
     created_at: datetime = Field(default_factory=_now)
 
 
@@ -112,4 +115,19 @@ class EscalationEvent(SQLModel, table=True):
     source: EscalationSource
     reason: str = ""
     vobiz_message_sent: bool = False
+    created_at: datetime = Field(default_factory=_now)
+
+
+class TurnTrace(SQLModel, table=True):
+    """One row per agent call per conversational turn -- populated from
+    resilience.trace_session() at the end of orchestrator.handle_turn().
+    This is what makes latency a real, demoable number instead of a claim."""
+
+    id: int = Field(default=None, primary_key=True)
+    session_id: str = Field(foreign_key="witnesssession.id", index=True)
+    turn_index: int
+    agent_name: str
+    duration_ms: float
+    used_fallback: bool
+    attempts: int
     created_at: datetime = Field(default_factory=_now)
