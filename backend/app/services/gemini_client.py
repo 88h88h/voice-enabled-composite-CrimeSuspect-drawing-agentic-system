@@ -17,7 +17,7 @@ from app.config import settings
 
 _client = genai.Client(api_key=settings.gemini_api_key)
 
-TEXT_MODEL = "gemini-3.6-flash"  # gemini-2.5-flash is deprecated for new users as of this build; confirmed via a live 404 from the real API
+TEXT_MODEL = "gemini-3.5-flash-lite"  # swapped from gemini-3.6-flash: our merged extraction+reply call was measured at 3.7-5.7s per turn, the dominant cost in the whole voice round-trip; flash-lite is purpose-built for latency-sensitive, high-volume text tasks like this one
 IMAGE_MODEL = "gemini-3.1-flash-image"  # gemini-2.5-flash-image is legacy and silently resolved to a preview variant with 0 free quota; this is the current primary model per ai.google.dev
 
 T = TypeVar("T", bound=BaseModel)
