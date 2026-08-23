@@ -26,17 +26,25 @@ the official join API docs), not just guessed from generic docs. Confirmed:
 SECOND UPDATE: verified against real live join API calls, not just docs.
 Two real 400 errors, both fixed by cross-checking Agora's own vendor-specific
 doc pages rather than guessing:
-- ASR: switched from Deepgram to "agora" (ARES) -- confirmed genuinely
-  zero-config (no params object needed at all), and it's what the original
-  plan wanted before Deepgram's example config nudged this file toward it.
-  Deepgram would have needed a "params.url" pointing at their endpoint,
-  which isn't worth the extra vendor surface when ARES needs nothing.
+- ASR: switched from Deepgram to ARES -- confirmed genuinely zero-config
+  (no params object needed at all beyond vendor/language).
 - TTS (Minimax, managed): needs "params.url" even in managed mode -- the
   managed credential only replaces the "key"/"group_id" fields, not the
   vendor's own API endpoint. Confirmed exact value via
   docs.agora.io/en/conversational-ai/models/tts/minimax:
   "wss://api.minimax.io/ws/v1/t2a_v2" for managed mode specifically
   (BYOK mode uses a different host).
+
+THIRD UPDATE: a real, silent bug found via live debugging, not caught by
+agent creation succeeding. ASR vendor was "agora" (a guess -- it happened
+not to error at creation time) when it should be "ares", and language was
+"en" when ARES expects a region-qualified code like "en-US". The wrong
+vendor string didn't fail loudly; Agora just never ran any transcription,
+producing an agent that reports RUNNING and accepts real, correctly-captured
+mic audio (confirmed via a live volume-level check in the browser) while
+silently sending us an empty utterance on every single turn. Passing agent
+creation is necessary but not sufficient evidence that a vendor string is
+actually correct.
 """
 
 from __future__ import annotations
@@ -85,7 +93,14 @@ def _agent_config(case_id: str, session_id: str, channel_name: str, agent_uid: i
             "remote_rtc_uids": ["*"],
             "enable_string_uid": False,
             "idle_timeout": 600,  # auto-cleanup an abandoned session after 10 minutes
-            "asr": {"vendor": "agora", "language": "en"},  # ARES: genuinely zero-config, confirmed via live call
+            # REAL BUG, found via live debugging: vendor must be "ares", not
+            # "agora". The wrong string didn't error at agent-creation time --
+            # Agora silently accepted it and simply never ran any
+            # transcription, which is why real, correctly-captured mic audio
+            # (confirmed via a live volume-level check) still produced
+            # completely empty utterances on every single turn. Language
+            # code also needs the region suffix ("en-US", not "en").
+            "asr": {"vendor": "ares", "language": "en-US"},
             "llm": {
                 # Custom LLM shape (our own server), NOT the vendor+managed
                 # shape used for asr/tts above -- confirmed these are two
