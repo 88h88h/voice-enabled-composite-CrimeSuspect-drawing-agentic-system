@@ -8,7 +8,7 @@ resilience.run_with_fallback wrapping a single well-defined async surface.
 from __future__ import annotations
 
 import asyncio
-from typing import AsyncIterator, TypeVar
+from typing import TypeVar
 
 from google import genai
 from pydantic import BaseModel
@@ -21,31 +21,6 @@ TEXT_MODEL = "gemini-3.6-flash"  # gemini-2.5-flash is deprecated for new users 
 IMAGE_MODEL = "gemini-3.1-flash-image"  # gemini-2.5-flash-image is legacy and silently resolved to a preview variant with 0 free quota; this is the current primary model per ai.google.dev
 
 T = TypeVar("T", bound=BaseModel)
-
-
-async def generate_text(system_prompt: str, user_message: str) -> str:
-    response = await asyncio.to_thread(
-        _client.models.generate_content,
-        model=TEXT_MODEL,
-        contents=user_message,
-        config={"system_instruction": system_prompt},
-    )
-    return response.text or ""
-
-
-async def stream_text(system_prompt: str, user_message: str) -> AsyncIterator[str]:
-    """Used by the Elicitation Agent so /chat/completions can stream SSE
-    chunks back to Agora as they arrive, instead of waiting on the full
-    reply."""
-    stream = await asyncio.to_thread(
-        _client.models.generate_content_stream,
-        model=TEXT_MODEL,
-        contents=user_message,
-        config={"system_instruction": system_prompt},
-    )
-    for chunk in stream:
-        if chunk.text:
-            yield chunk.text
 
 
 async def generate_structured(system_prompt: str, user_message: str, schema: type[T]) -> T:

@@ -3,8 +3,16 @@ Orchestrator: per-turn glue. Owns DB reads/writes for a witness session's
 turn (the DB is the source of truth, never in-memory conversation state,
 since Agora's /chat/completions calls are treated as stateless -- see
 plan). Sequences: safety guard -> (confirmation classification, if
-awaiting) -> extraction -> consistency -> apply/persist -> elicitation or
-deterministic clarifying question or read-back.
+awaiting) -> extraction+reply (one combined Gemini call) -> consistency ->
+apply/persist -> deterministic clarifying question, read-back, or the
+model's own reply.
+
+extraction.process_turn() does both feature extraction AND reply
+composition in a single Gemini call (see that module's docstring for why:
+9-13s sequential became one round-trip). The determinism guarantees for
+contradictions and completion read-backs are unaffected -- this orchestrator
+still overrides reply_text for those cases regardless of what the model
+said, exactly as before the merge.
 
 Deliberately a plain async function, not a graph framework -- the actual
 control flow here is a short linear pipeline with a couple of conditional
@@ -16,7 +24,7 @@ from dataclasses import dataclass
 
 from sqlmodel import Session, select
 
-from app.agents import confirmation, consistency, elicitation, extraction, safety_guard
+from app.agents import confirmation, consistency, extraction, safety_guard
 from app.agents.extraction import apply_delta
 from app.models.db import (
     CaseStatus,
@@ -112,7 +120,7 @@ async def _handle_turn_inner(db: Session, witness_session: WitnessSession, lates
         # to the normal extraction path below, rather than wasting the turn.
         witness_session.awaiting_confirmation = False
 
-    delta = await extraction.extract_delta(latest_utterance, current_params)
+    delta = await extraction.process_turn(latest_utterance, current_params)
     consistency_result = await consistency.check_consistency(current_params, delta)
 
     if consistency_result.contradictions:
@@ -139,5 +147,7 @@ async def _handle_turn_inner(db: Session, witness_session: WitnessSession, lates
         witness_session.awaiting_confirmation = True
         return TurnResult(reply_text=confirmation.build_readback(new_params))
 
-    reply = await elicitation.get_reply(new_params, conversation_so_far="", latest_utterance=latest_utterance)
-    return TurnResult(reply_text=reply)
+    # Same call that did extraction already composed this -- no second
+    # Gemini round-trip needed for the normal (non-contradiction,
+    # non-complete) path.
+    return TurnResult(reply_text=delta.reply_text)

@@ -158,8 +158,25 @@ class FaceParameters(BaseModel):
 
 
 class FeatureDelta(BaseModel):
-    """What the Extraction Agent returns each turn: only the fields the
-    witness actually addressed, never a full FaceParameters guess."""
+    """What one turn of extraction produces: only the fields the witness
+    actually addressed (never a full FaceParameters guess), plus the
+    natural-language reply to speak back. reply_text is generated in the
+    SAME Gemini call as updates (see agents/extraction.process_turn) --
+    merged deliberately to cut one full LLM round-trip per turn versus a
+    separate extraction + elicitation call. The orchestrator still
+    overrides reply_text deterministically for contradictions and
+    completion read-backs, so this merge changes latency, not correctness
+    guarantees."""
 
     updates: FaceParameters = Field(default_factory=FaceParameters)
     raw_utterance: str
+    reply_text: str = ""
+
+
+class ExtractedTurn(BaseModel):
+    """The literal shape Gemini returns for one turn -- deliberately
+    excludes raw_utterance (we already know it locally, no need to have the
+    model echo it back)."""
+
+    updates: FaceParameters = Field(default_factory=FaceParameters)
+    reply_text: str = ""

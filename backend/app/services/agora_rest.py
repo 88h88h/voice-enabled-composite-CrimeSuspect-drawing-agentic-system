@@ -92,7 +92,7 @@ def _agent_config(case_id: str, session_id: str, channel_name: str, agent_uid: i
                 # distinct, non-interchangeable configurations.
                 "url": f"{settings.public_base_url}/chat/completions?session_id={session_id}&case_id={case_id}",
                 "api_key": "unused",  # our endpoint doesn't check this; required field for some SDK versions
-                "system_messages": [],  # system prompt is owned by elicitation.py, not duplicated here
+                "system_messages": [],  # system prompt is owned by extraction.process_turn, not duplicated here
                 "greeting_message": "Hi, I'm here to help build a description of the person you saw. Take your time.",
                 "failure_message": "Sorry, one moment please.",  # Agora's own spoken fallback if OUR endpoint is unreachable/times out
                 "max_history": 1,  # Agora requires > 0; we still reconstruct real context from the DB every turn regardless of what it replays
