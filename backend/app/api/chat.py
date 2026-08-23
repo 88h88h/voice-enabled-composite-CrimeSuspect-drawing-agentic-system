@@ -37,12 +37,18 @@ def _latest_user_message(body: dict) -> str:
 
 
 def _sse_chunk(reply_text: str, model: str) -> dict:
+    # "role": "assistant" on the delta is required by Agora's custom-LLM
+    # parser (confirmed against their docs) -- without it, the engine
+    # apparently can't extract the content to speak, even though the HTTP
+    # call itself succeeds fine from our side. This was a real, silent bug:
+    # the agent greeted correctly (a static, non-SSE message) but produced
+    # no audio for any dynamically generated reply.
     return {
         "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
         "object": "chat.completion.chunk",
         "created": int(time.time()),
         "model": model,
-        "choices": [{"index": 0, "delta": {"content": reply_text}, "finish_reason": None}],
+        "choices": [{"index": 0, "delta": {"role": "assistant", "content": reply_text}, "finish_reason": None}],
     }
 
 
