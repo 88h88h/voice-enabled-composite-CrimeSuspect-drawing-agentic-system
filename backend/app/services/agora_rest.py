@@ -7,18 +7,27 @@ step for agent configuration (see plan). Two responsibilities:
    wiring built as a config object here rather than clicked together in a
    dashboard.
 
-CAVEAT, stated honestly: the buildTokenWithUid() signature below was
-verified against the installed `agora-token-builder` package (see git log --
-confirmed by inspecting the real function signature). The CreateConvoAIAgent
-request/response shape was NOT verified against a live account (no API
-keys available while writing this) -- it's built from Agora's documented
-REST contract (OpenAI-compatible llm.url, vendor-keyed asr/tts blocks,
-Basic Auth with customer_id:customer_secret). Re-verify the exact field
-names against https://docs.agora.io/en/conversational-ai/rest-api/agent/join
-as the very first thing in Phase 1 of the build, using a real account --
-this file is the single highest-uncertainty piece of the whole system and
-is scheduled first in the plan specifically so this gets surfaced with
-maximum runway left to fix it.
+UPDATE: field shapes below are now verified against a real account (the
+user's live Studio console, both the "Full REST" code-generation panel and
+the official join API docs), not just guessed from generic docs. Confirmed:
+- channel/token/agent_rtc_uid/remote_rtc_uids live inside "properties",
+  alongside asr/llm/tts -- matches what was already here.
+- Custom LLM (pointing at our own server) uses {"url", "api_key",
+  "system_messages", ...} -- confirmed via docs.agora.io's custom-LLM page.
+  This is a DIFFERENT shape than a preset vendor's {"vendor", "params"}
+  block; don't mix them.
+- "Agora Managed Key" (no separate vendor account needed) is expressed as
+  "credential_mode": "managed" inside a vendor block -- confirmed via the
+  official join API docs, not the resource_id values Studio's UI shows
+  (those looked pipeline-specific, not safely reusable from a raw call).
+- TTS uses Minimax with credential_mode=managed instead of ElevenLabs --
+  eliminates a whole separate account/signup for the demo.
+- ASR uses Deepgram with credential_mode=managed specifically because it's
+  the vendor confirmed present in the user's account via a real Full REST
+  example; "agora" as the ARES vendor string is a reasonable inference from
+  general docs but wasn't directly confirmed the same way, so the
+  lower-risk proven option was chosen for Phase 1. Swap to ARES later if
+  it's confirmed to work equally simply.
 """
 
 from __future__ import annotations
@@ -65,17 +74,28 @@ def _agent_config(case_id: str, session_id: str, channel_name: str, agent_uid: i
             "token": build_rtc_token(channel_name, agent_uid),
             "agent_rtc_uid": str(agent_uid),
             "remote_rtc_uids": ["*"],
-            "asr": {"vendor": "agora", "language": "auto"},  # Agora ARES: zero-config, 36 languages
+            "enable_string_uid": False,
+            "idle_timeout": 600,  # auto-cleanup an abandoned session after 10 minutes
+            "asr": {
+                "vendor": "deepgram",
+                "credential_mode": "managed",  # Agora-managed credential, no separate Deepgram account
+                "params": {"model": "nova-3", "language": "en"},
+            },
             "llm": {
+                # Custom LLM shape (our own server), NOT the vendor+managed
+                # shape used for asr/tts above -- confirmed these are two
+                # distinct, non-interchangeable configurations.
                 "url": f"{settings.public_base_url}/chat/completions?session_id={session_id}&case_id={case_id}",
                 "api_key": "unused",  # our endpoint doesn't check this; required field for some SDK versions
                 "system_messages": [],  # system prompt is owned by elicitation.py, not duplicated here
                 "greeting_message": "Hi, I'm here to help build a description of the person you saw. Take your time.",
+                "failure_message": "Sorry, one moment please.",  # Agora's own spoken fallback if OUR endpoint is unreachable/times out
                 "max_history": 0,  # we reconstruct context from the DB every turn, not from Agora's replay
             },
             "tts": {
-                "vendor": "elevenlabs",
-                "params": {"key": settings.elevenlabs_api_key, "voice_id": settings.elevenlabs_voice_id},
+                "vendor": "minimax",
+                "credential_mode": "managed",  # Agora-managed credential, no separate ElevenLabs/Minimax account needed
+                "params": {"model": "speech-2.8-turbo", "voice_setting": {"voice_id": "English_radiant_girl"}},
             },
             "advanced_features": {"enable_aivad": True},  # Agora's voice-activity detection -> better barge-in
         },

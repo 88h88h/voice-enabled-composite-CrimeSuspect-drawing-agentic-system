@@ -11,9 +11,6 @@ class Settings(BaseSettings):
     agora_customer_id: str = ""
     agora_customer_secret: str = ""
 
-    elevenlabs_api_key: str = ""
-    elevenlabs_voice_id: str = ""
-
     gemini_api_key: str = ""
 
     vobiz_auth_id: str = ""

@@ -98,6 +98,10 @@ class SketchImage(SQLModel, table=True):
     session_id: str | None = Field(default=None, foreign_key="witnesssession.id")  # None => case-level reconciled sketch
     file_path: str = ""
     status: SketchStatus = SketchStatus.generating
+    # Snapshot of the FaceParameters used to generate this sketch -- lets
+    # the caller skip regenerating when nothing has actually changed since
+    # the last successful generation, instead of firing on every turn.
+    parameters_json: str = ""
     created_at: datetime = Field(default_factory=_now)
 
 

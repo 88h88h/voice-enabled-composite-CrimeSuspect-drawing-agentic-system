@@ -15,7 +15,7 @@ import uuid
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
-from sqlmodel import select
+from sqlmodel import Session, select
 
 from app.agents import composite_generation, orchestrator
 from app.database import get_session
@@ -56,30 +56,62 @@ def _sse_final_chunk(model: str) -> dict:
     }
 
 
+async def generate_and_save_sketch(db: Session, case_id: str, session_id: str) -> None:
+    """Core logic, DB-injected for testability (same pattern as
+    orchestrator.handle_turn). Skips the external call entirely when the
+    parameters haven't changed since the last successful generation -- this
+    is a real-money API call, not just a UX nicety to debounce."""
+    params = orchestrator.load_current_params(db, session_id)
+    if not params.filled_fields():
+        return
+
+    previous = db.exec(
+        select(SketchImage)
+        .where(SketchImage.session_id == session_id, SketchImage.status == SketchStatus.ready)
+        .order_by(SketchImage.created_at.desc())
+    ).first()
+
+    current_params_json = params.model_dump_json()
+    if previous is not None and previous.parameters_json == current_params_json:
+        # Nothing changed since the last successful generation. A prior
+        # FAILED attempt does NOT block a retry here, only a matching
+        # READY one does.
+        return
+
+    previous_bytes = load_sketch(previous.file_path) if previous else None
+
+    image_bytes = await composite_generation.generate_composite(params, previous_bytes)
+
+    if image_bytes is None:
+        db.add(
+            SketchImage(
+                case_id=case_id,
+                session_id=session_id,
+                status=SketchStatus.generation_failed,
+                parameters_json=current_params_json,
+            )
+        )
+    else:
+        file_path, _ = save_sketch(image_bytes)
+        db.add(
+            SketchImage(
+                case_id=case_id,
+                session_id=session_id,
+                file_path=file_path,
+                status=SketchStatus.ready,
+                parameters_json=current_params_json,
+            )
+        )
+    db.commit()
+
+
 async def _generate_and_save_sketch(case_id: str, session_id: str) -> None:
     """Runs after the turn's SSE response has already been sent -- the
     external action (composite generation) never blocks the live
-    conversational reply."""
+    conversational reply. Thin wrapper: opens its own DB session since the
+    request-scoped one may already be closed by the time this fires."""
     with get_session() as db:
-        params = orchestrator.load_current_params(db, session_id)
-        if not params.filled_fields():
-            return
-
-        previous = db.exec(
-            select(SketchImage)
-            .where(SketchImage.session_id == session_id, SketchImage.status == SketchStatus.ready)
-            .order_by(SketchImage.created_at.desc())
-        ).first()
-        previous_bytes = load_sketch(previous.file_path) if previous else None
-
-        image_bytes = await composite_generation.generate_composite(params, previous_bytes)
-
-        if image_bytes is None:
-            db.add(SketchImage(case_id=case_id, session_id=session_id, status=SketchStatus.generation_failed))
-        else:
-            file_path, _ = save_sketch(image_bytes)
-            db.add(SketchImage(case_id=case_id, session_id=session_id, file_path=file_path, status=SketchStatus.ready))
-        db.commit()
+        await generate_and_save_sketch(db, case_id, session_id)
 
 
 @router.post("/chat/completions")

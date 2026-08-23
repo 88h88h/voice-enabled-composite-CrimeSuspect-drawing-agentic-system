@@ -17,8 +17,8 @@ from app.config import settings
 
 _client = genai.Client(api_key=settings.gemini_api_key)
 
-TEXT_MODEL = "gemini-2.5-flash"
-IMAGE_MODEL = "gemini-2.5-flash-image"
+TEXT_MODEL = "gemini-3.6-flash"  # gemini-2.5-flash is deprecated for new users as of this build; confirmed via a live 404 from the real API
+IMAGE_MODEL = "gemini-3.1-flash-image"  # gemini-2.5-flash-image is legacy and silently resolved to a preview variant with 0 free quota; this is the current primary model per ai.google.dev
 
 T = TypeVar("T", bound=BaseModel)
 
