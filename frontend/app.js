@@ -87,6 +87,17 @@ document.querySelectorAll(".join-voice-btn").forEach((btn, idx) => {
       });
 
       const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+
+      // Joining a channel does NOT auto-play other participants' audio --
+      // the agent's spoken replies only reach the speakers if we
+      // explicitly subscribe to its published track here.
+      client.on("user-published", async (user, mediaType) => {
+        await client.subscribe(user, mediaType);
+        if (mediaType === "audio") {
+          user.audioTrack.play();
+        }
+      });
+
       await client.join(app_id, channel_name, frontend_token, frontend_uid);
       const micTrack = await AgoraRTC.createMicrophoneAudioTrack();
       await client.publish([micTrack]);
