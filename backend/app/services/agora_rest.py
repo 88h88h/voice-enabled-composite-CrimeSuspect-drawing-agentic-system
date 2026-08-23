@@ -122,6 +122,34 @@ def _agent_config(case_id: str, session_id: str, channel_name: str, agent_uid: i
                 },
             },
             "advanced_features": {"enable_aivad": True},  # Agora's voice-activity detection -> better barge-in
+            # "Patient" turn-detection preset -- confirmed via Studio's own
+            # Full REST code generator, not guessed. We were running on
+            # undocumented defaults, which real testing showed cut turns off
+            # too early: real, correctly-captured speech (confirmed via a
+            # live mic volume check) was intermittently producing empty ASR
+            # transcripts. This gives more room before a turn is finalized
+            # (480ms silence, up to 4s semantic wait) and more padding at
+            # the start of speech (1000ms) so the beginning of an utterance
+            # doesn't get clipped.
+            "turn_detection": {
+                "mode": "default",
+                "config": {
+                    "speech_threshold": 0.6,
+                    "start_of_speech": {
+                        "mode": "vad",
+                        "vad_config": {
+                            "interrupt_duration_ms": 240,
+                            "prefix_padding_ms": 1000,
+                            "speaking_interrupt_duration_ms": 240,
+                        },
+                    },
+                    "end_of_speech": {
+                        "mode": "semantic",
+                        "semantic_config": {"max_wait_ms": 4000, "silence_duration_ms": 480},
+                    },
+                },
+            },
+            "parameters": {"opt_out": False},
         },
     }
 
