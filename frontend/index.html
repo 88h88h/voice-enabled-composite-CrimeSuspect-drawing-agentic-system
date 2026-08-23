@@ -1,0 +1,63 @@
+<title>Composite Sketch Assistant</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js"></script>
+
+<h1>Composite Sketch Assistant &mdash; Case Intake</h1>
+<div id="status-line">Backend: <span id="backend-status">checking...</span></div>
+
+<div class="panel" id="case-setup">
+  <h2>1. Open a case</h2>
+  <label>Incident location (used for jurisdiction lookup)</label>
+  <input id="incident-location" placeholder="e.g. Sector 62 Noida" />
+  <label>Incident description</label>
+  <textarea id="incident-description" rows="2" placeholder="brief description"></textarea>
+  <button id="create-case-btn">Create case</button>
+</div>
+
+<div id="case-panel" style="display:none">
+  <div class="panel">
+    <h2>Case <span id="case-ref"></span></h2>
+    <div>Status: <b id="case-status"></b></div>
+    <div>Jurisdiction: <span id="case-jurisdiction"></span></div>
+    <div id="escalation-banners"></div>
+    <div id="conflict-banners"></div>
+    <div class="row">
+      <div class="col">
+        <label>Caseworker name (for sign-off)</label>
+        <input id="signoff-name" placeholder="Officer name" />
+        <button id="signoff-btn">Sign off case (confirm final)</button>
+      </div>
+      <div class="col">
+        <label>Escalation reason (manual)</label>
+        <input id="escalate-reason" placeholder="e.g. witness distress" />
+        <button id="escalate-btn" class="danger">Escalate to human</button>
+      </div>
+    </div>
+    <button id="reconcile-btn" class="secondary">Reconcile both witnesses</button>
+  </div>
+
+  <div class="row">
+    <div class="col panel witness-card" data-witness="0">
+      <h3>Witness 1</h3>
+      <button class="start-session-btn">Start witness session</button>
+      <button class="join-voice-btn" style="display:none">Join voice (mic)</button>
+      <div class="sketch-wrap">
+        <img class="sketch-img" src="" style="display:none" />
+        <div class="draft-watermark" style="display:none">DRAFT</div>
+      </div>
+      <ul class="feature-list"></ul>
+    </div>
+    <div class="col panel witness-card" data-witness="1">
+      <h3>Witness 2</h3>
+      <button class="start-session-btn">Start witness session</button>
+      <button class="join-voice-btn" style="display:none">Join voice (mic)</button>
+      <div class="sketch-wrap">
+        <img class="sketch-img" src="" style="display:none" />
+        <div class="draft-watermark" style="display:none">DRAFT</div>
+      </div>
+      <ul class="feature-list"></ul>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>

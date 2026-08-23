@@ -12,9 +12,12 @@ def save_sketch(image_bytes: bytes) -> tuple[str, str]:
     filename = f"{uuid.uuid4().hex}.png"
     path = SKETCH_DIR / filename
     path.write_bytes(image_bytes)
-    served_url = f"{settings.public_base_url}/sketches/{filename}"
-    return str(path), served_url
+    return str(path), sketch_url_for(str(path))
 
 
 def load_sketch(file_path: str) -> bytes:
     return Path(file_path).read_bytes()
+
+
+def sketch_url_for(file_path: str) -> str:
+    return f"{settings.public_base_url}/sketches/{Path(file_path).name}"

@@ -18,6 +18,7 @@ from app.models.db import (
     SketchStatus,
     WitnessSession,
 )
+from app.services.image_store import sketch_url_for
 
 router = APIRouter()
 
@@ -82,11 +83,17 @@ async def get_case_state(case_id: str):
         for ws in witness_sessions:
             params = orchestrator.load_current_params(db, ws.id)
             latest_sketch = next((s for s in sketches if s.session_id == ws.id), None)
+            latest_sketch_url = (
+                sketch_url_for(latest_sketch.file_path)
+                if latest_sketch and latest_sketch.status == SketchStatus.ready
+                else None
+            )
             witnesses_out.append(
                 {
                     "session": ws,
                     "parameters": params,
                     "latest_sketch_status": latest_sketch.status if latest_sketch else None,
+                    "latest_sketch_url": latest_sketch_url,
                 }
             )
 
